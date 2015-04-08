@@ -27,7 +27,8 @@ class Application:
     def __init__(self, h5_fnam, h5_path = '/data', geom_fnam = None, buffersize_chunks = 8, chunksize = 22):
         self.h5_fnam = h5_fnam
         self.h5_path = h5_path
-        self.index   = 100
+        self.index     = 0
+        self.old_index = None
         self.buffersize_chunks = buffersize_chunks
         self.chunksize = chunksize
         self.geom_fnam  = geom_fnam
@@ -42,8 +43,20 @@ class Application:
         self.load_data(self.h5_fnam)
         self.initUI()
 
-    def load_data(self, fnam):
-        start_index = self.chunksize * self.buffersize_chunks * self.index 
+    def load_data(self, fnam, start_index = None):
+        if start_index is not None :
+            # find the closest chunk * buffersize
+            index = int(start_index / float(self.chunksize * self.buffersize_chunks))
+            self.index = index
+
+        if self.index == self.old_index :
+            print 'same index doing nothing...'
+            return 
+        start_index    = self.chunksize * self.buffersize_chunks * self.index 
+        self.old_index = self.index
+
+        print '\nLoading images with index:', start_index, 'to', start_index + self.chunksize * self.buffersize_chunks, fnam
+        
         h5_file = h5py.File(fnam, 'r')
         h5_data = h5_file[self.h5_path]
         print '\nloading image buffer:', fnam
@@ -53,7 +66,7 @@ class Application:
             
             for j in range(self.chunksize):
                 progress = float(i * self.chunksize + j + 1) / float(self.buffersize_chunks * self.chunksize)
-                #update_progress(progress)
+                update_progress(progress)
                 
                 self.data[i * self.chunksize + j, self.i_map, self.j_map] = self.temp_data[j].ravel()
         h5_file.close()
@@ -74,6 +87,16 @@ class Application:
         w = PyQt4.QtGui.QWidget()
         
         pg.setConfigOption('background', 0.2)
+
+
+        # Input validation
+        self.intregex = PyQt4.QtCore.QRegExp('[0-9]+')
+        self.floatregex = PyQt4.QtCore.QRegExp('[0-9\.]+')
+
+        self.qtintvalidator = PyQt4.QtGui.QRegExpValidator()
+        self.qtintvalidator.setRegExp(self.intregex)
+        self.qtfloatvalidator = PyQt4.QtGui.QRegExpValidator()
+        self.qtfloatvalidator.setRegExp(self.floatregex)
         
         # 2D plot for the cspad and mask
         self.imageW = pg.ImageView()
@@ -97,7 +120,12 @@ class Application:
             self.files_dropdownW.addItem(k)
         
         def switch_data(text):
-            self.load_data(str(text))
+            if str(text) == self.h5_fnam :
+                print 'no change to dataset'
+                return
+            self.h5_fnam   = str(text)
+            self.old_index = None
+            self.load_data(self.h5_fnam, 0)
             print '\nsetting image data:'
             self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
             print 'Done'
@@ -115,6 +143,23 @@ class Application:
         self.next_button = PyQt4.QtGui.QPushButton('load next ' + str(self.buffersize_chunks * self.chunksize) + ' images')
         self.next_button.clicked.connect(next_buffer)
         hlayout.addWidget(self.next_button)
+
+        # go to index line edit
+        def goto_index():
+            new_index = int(self.index_lineedit.text())
+            self.load_data(self.h5_fnam, new_index)
+            print '\nsetting image data:'
+            self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
+            print 'Done'
+
+        self.index_label = PyQt4.QtGui.QLabel()
+        self.index_label.setText('goto index:')
+        self.index_lineedit = PyQt4.QtGui.QLineEdit()
+        self.index_lineedit.setText('0')
+        self.index_lineedit.editingFinished.connect(goto_index)
+        self.index_lineedit.setValidator(self.qtintvalidator)
+        hlayout.addWidget(self.index_label)
+        hlayout.addWidget(self.index_lineedit)
 
         vlayout.addLayout(hlayout)
         
@@ -145,8 +190,13 @@ def update_progress(progress):
     sys.stdout.flush()
 
 if __name__ == '__main__':
-    h5_fnam    = 'LF53_data_nfs/cxif5315-r0162.h5'
+    file_list = open('file_list_LF53.txt', 'r')
+    fnam_list = []
+    for line in file_list :
+        fnam_list.append(line.rstrip())
+
+    h5_fnam    = fnam_list[0]
     h5_path    = '/Configure:0000/Run:0000/CalibCycle:0000/CsPad::ElementV2/CxiDs2.0:Cspad.0/data'
     geom_fnam  = 'cspad-cxif5315-cxi-taw4.geom'
-    buffersize_chunks = 16  # 22 is the chunk size for this dataset
+    buffersize_chunks = 4  # 22 is the chunk size for this dataset
     Application(h5_fnam, h5_path, geom_fnam, buffersize_chunks = buffersize_chunks)
