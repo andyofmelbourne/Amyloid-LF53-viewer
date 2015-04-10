@@ -59,13 +59,16 @@ class Application:
     def __init__(self, run, geom_fnam, buffersize = 100, darkcal = None):
         self.geom_fnam  = geom_fnam
         self.run        = run
+        # get the time stamps for this dataset
+        self.times = run.times()
         self.buffersize = buffersize
         if darkcal is not None :
             self.darkcal    = gf.apply_geom(geom_fnam, darkcal)
         else :
             self.darkcal    = None
         
-        self.index = 0
+        self.index     = 0
+        self.old_index = None
         
         ij, self.geom_shape    = gf.get_ij_psana_shaped(geom_fnam)
         self.i_map, self.j_map = ij[0], ij[1]  
@@ -84,16 +87,16 @@ class Application:
         if start_index is not None :
             if start_index != self.index:
                 self.index = start_index
-        
-        # get the time stamps for this dataset
-        times = run.times()
+
+        if self.index == self.old_index :
+            return 
         
         # get the buffer time stamps self.index : self.index + buffersize
-        if self.index + self.buffersize < len(times):
-            mytimes = times[self.index : self.index + self.buffersize]
+        if self.index + self.buffersize < len(self.times):
+            mytimes = self.times[self.index : self.index + self.buffersize]
         else : 
-            print 'end of run. Loading: ', self.index, '--> ', len(times)
-            mytimes = times[self.index : -1]
+            print 'end of run. Loading: ', self.index, '--> ', len(self.times)
+            mytimes = self.times[self.index : -1]
          
         # load the raw cspad data in this interval
         print '\nloading image buffer:' 
@@ -111,8 +114,8 @@ class Application:
         # apply dark correction
         if self.darkcal is not None :
             self.data -= self.darkcal
-            
-        self.index += self.buffersize
+
+        self.old_index = self.index
 
     def initUI(self):
         # Always start by initializing Qt (only once per application)
@@ -146,21 +149,24 @@ class Application:
 
         # add a next button
         def next_buffer():
+            self.index += self.buffersize
             self.load_data(self.run)
             print '\nsetting image data:'
             self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
+            self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
             print 'Done'
 
-        self.next_button = PyQt4.QtGui.QPushButton('load next ' + str(self.buffersize) + ' images')
+        self.next_button = PyQt4.QtGui.QPushButton('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
         self.next_button.clicked.connect(next_buffer)
         hlayout.addWidget(self.next_button)
         
         # go to index line edit
         def goto_index():
-            new_index = int(self.index_lineedit.text())
-            self.load_data(self.run, new_index)
+            self.index = int(self.index_lineedit.text())
+            self.load_data(self.run)
             print '\nsetting image data:'
             self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
+            self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
             print 'Done'
 
         self.index_label = PyQt4.QtGui.QLabel()
