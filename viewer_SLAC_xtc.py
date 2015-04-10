@@ -10,6 +10,8 @@ import pyqtgraph as pg
 import PyQt4.QtGui
 import PyQt4.QtCore
 import numpy as np
+import sys
+import h5py
 
 import geometry_funcs as gf
 
@@ -26,7 +28,7 @@ for evt in ds.events():
     print str(evtID)
 """
 
-def data_as_slab(evt, detector_data_source_string = 'DetInfo(CxiDs1.0:Cspad.0)'):
+def data_as_slab(evt, detector_data_source_string = 'DetInfo(CxiDs2.0:Cspad.0)'):
     """
     0: 388        388: 2 * 388  2*388: 3*388  3*388: 4*388
     (0, 0, :, :)  (1, 0, :, :)  (2, 0, :, :)  (3, 0, :, :)
@@ -36,8 +38,7 @@ def data_as_slab(evt, detector_data_source_string = 'DetInfo(CxiDs1.0:Cspad.0)')
     (0, 7, :, :)  (1, 7, :, :)  (2, 7, :, :)  (3, 7, :, :)
     """
     slab_shape   = (1480, 1552)
-    cspad        = evt.get(psana.CsPad.DataV2, psana.Source(detector_data_source_string))
-    cspad_np     = np.array([cspad.quads(j).data() for j in range(cspad.quads_shape()[0])])
+    cspad_np     = data_from_evt(evt, detector_data_source_string = detector_data_source_string)
     native_shape = cspad_np.shape
     cspad_ij     = np.zeros(slab_shape, dtype=cspad_np.dtype)
     for i in range(cspad_np.shape[0]):
@@ -45,29 +46,38 @@ def data_as_slab(evt, detector_data_source_string = 'DetInfo(CxiDs1.0:Cspad.0)')
     
     return cspad_ij
 
+def data_from_evt(evt, detector_data_source_string = 'DetInfo(CxiDs2.0:Cspad.0)'):
+    cspad        = evt.get(psana.CsPad.DataV2, psana.Source(detector_data_source_string))
+    cspad_np     = np.array([cspad.quads(j).data() for j in range(cspad.quads_shape()[0])])
+    return cspad_np
+
 class Application:
     """
     The main frame of the application
     """
 
-    def __init__(self, ds, geom_fnam, buffersize = 100)
+    def __init__(self, run, geom_fnam, buffersize = 100, darkcal = None):
         self.geom_fnam  = geom_fnam
-        self.ds         = ds
+        self.run        = run
         self.buffersize = buffersize
-
-        self.index = None
+        if darkcal is not None :
+            self.darkcal    = gf.apply_geom(geom_fnam, darkcal)
+        else :
+            self.darkcal    = None
+        
+        self.index = 0
         
         ij, self.geom_shape    = gf.get_ij_psana_shaped(geom_fnam)
         self.i_map, self.j_map = ij[0], ij[1]  
 
         self.data      = np.zeros((buffersize,) + self.geom_shape, dtype=np.int16)
-        self.temp_data = np.zeros((buffersize,) + (32, 185, 388), dtype=np.int16)
-
+        self.temp_data = np.zeros((buffersize,) + (4, 8, 185, 388), dtype=np.int16)
+        
         # online plugins
-        self.load_data(ds)
+        self.load_data(run)
         self.initUI()
 
-    def load_data(self, ds, start_index = None):
+    def load_data(self, run, start_index = None):
         """
         load the next "self.buffersize" images in the dataset "ds"
         """
@@ -76,7 +86,6 @@ class Application:
                 self.index = start_index
         
         # get the time stamps for this dataset
-        run   = ds.runs()
         times = run.times()
         
         # get the buffer time stamps self.index : self.index + buffersize
@@ -89,18 +98,20 @@ class Application:
         # load the raw cspad data in this interval
         print '\nloading image buffer:' 
         for i in range(self.buffersize):
-            evt  = run(mytimes[i])
-            slab = data_as_slab(evt)
+            evt  = run.event(mytimes[i])
+            slab = data_from_evt(evt)
             self.temp_data[i] = slab
             
-            # apply dark correction
-            pass
-
+        for i in range(self.buffersize):
             # apply geometry
             update_progress(float(i + 1) / float(self.buffersize))
-                
+             
             self.data[i, self.i_map, self.j_map] = self.temp_data[i].ravel()
         
+        # apply dark correction
+        if self.darkcal is not None :
+            self.data -= self.darkcal
+            
         self.index += self.buffersize
 
     def initUI(self):
@@ -111,12 +122,11 @@ class Application:
         w = PyQt4.QtGui.QWidget()
         
         pg.setConfigOption('background', 0.2)
-
-
+        
         # Input validation
         self.intregex = PyQt4.QtCore.QRegExp('[0-9]+')
         self.floatregex = PyQt4.QtCore.QRegExp('[0-9\.]+')
-
+        
         self.qtintvalidator = PyQt4.QtGui.QRegExpValidator()
         self.qtintvalidator.setRegExp(self.intregex)
         self.qtfloatvalidator = PyQt4.QtGui.QRegExpValidator()
@@ -131,47 +141,24 @@ class Application:
         
         vlayout = PyQt4.QtGui.QVBoxLayout()
         vlayout.addWidget(self.imageW)
-
+        
         hlayout = PyQt4.QtGui.QHBoxLayout()
-        # drop down menu of run files
-        self.files_dropdownW = PyQt4.QtGui.QComboBox()
-        file_list = open('file_list_LF53.txt', 'r')
-        fnam_list = []
-        for line in file_list :
-            fnam_list.append(line.rstrip())
-        
-        for k in fnam_list:
-            self.files_dropdownW.addItem(k)
-        
-        def switch_data(text):
-            if str(text) == self.h5_fnam :
-                print 'no change to dataset'
-                return
-            self.h5_fnam   = str(text)
-            self.old_index = None
-            self.load_data(self.h5_fnam, 0)
-            print '\nsetting image data:'
-            self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
-            print 'Done'
-        
-        self.files_dropdownW.activated[str].connect( switch_data )
-        hlayout.addWidget(self.files_dropdownW)
 
         # add a next button
         def next_buffer():
-            self.load_data(self.h5_fnam)
+            self.load_data(self.run)
             print '\nsetting image data:'
             self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
             print 'Done'
 
-        self.next_button = PyQt4.QtGui.QPushButton('load next ' + str(self.buffersize_chunks * self.chunksize) + ' images')
+        self.next_button = PyQt4.QtGui.QPushButton('load next ' + str(self.buffersize) + ' images')
         self.next_button.clicked.connect(next_buffer)
         hlayout.addWidget(self.next_button)
-
+        
         # go to index line edit
         def goto_index():
             new_index = int(self.index_lineedit.text())
-            self.load_data(self.h5_fnam, new_index)
+            self.load_data(self.run, new_index)
             print '\nsetting image data:'
             self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
             print 'Done'
@@ -217,11 +204,18 @@ def update_progress(progress):
 
 if __name__ == '__main__':
     # get the data source
-    source = 'exp=cxif5315:run=165:dir=/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/xtc/'
+    source = 'exp=cxif5315:run=165:dir=/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/xtc/:idx'
     
+    # load darkcal
+    darkcal = '/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/processed/calib/darkcal/cxif5315-r0019-CxiDs1-darkcal.h5'
+    f       = h5py.File(darkcal, 'r')
+    darkcal = f['data/data'].value
+    f.close()
+     
     # get the data source
-    ds = psana.DataSource(source)
+    ds  = psana.DataSource(source)
+    run = ds.runs().next()
     
     geom_fnam  = 'cspad-cxif5315-cxi-taw4.geom'
     
-    Application(ds, geom_fnam, buffersize = 100)
+    Application(run, geom_fnam, buffersize = 100, darkcal = darkcal)
