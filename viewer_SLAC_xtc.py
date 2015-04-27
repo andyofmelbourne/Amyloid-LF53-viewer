@@ -127,6 +127,7 @@ class Application:
         pg.setConfigOption('background', 0.2)
         
         # Input validation
+        ##################
         self.intregex = PyQt4.QtCore.QRegExp('[0-9]+')
         self.floatregex = PyQt4.QtCore.QRegExp('[0-9\.]+')
         
@@ -136,10 +137,11 @@ class Application:
         self.qtfloatvalidator.setRegExp(self.floatregex)
         
         # 2D plot for the cspad and mask
+        ################################
         self.imageW = pg.ImageView()
         
         print '\nsetting image data:'
-        self.imageW.setImage(self.data)
+        self.imageW.setImage(np.transpose(self.data, (0, 2, 1)))
         print 'Done'
         
         vlayout = PyQt4.QtGui.QVBoxLayout()
@@ -148,11 +150,12 @@ class Application:
         hlayout = PyQt4.QtGui.QHBoxLayout()
 
         # add a next button
+        ###################
         def next_buffer():
             self.index += self.buffersize
             self.load_data(self.run)
             print '\nsetting image data:'
-            self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
+            self.imageW.setImage(np.transpose(self.data, (0, 2, 1)), autoRange = False, autoLevels = False, autoHistogramRange = False)
             self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
             print 'Done'
 
@@ -161,13 +164,18 @@ class Application:
         hlayout.addWidget(self.next_button)
         
         # go to index line edit
+        #######################
         def goto_index():
             self.index = int(self.index_lineedit.text())
             self.load_data(self.run)
             print '\nsetting image data:'
-            self.imageW.setImage(self.data, autoRange = False, autoLevels = False, autoHistogramRange = False)
+            self.imageW.setImage(np.transpose(self.data, (0, 2, 1)), autoRange = False, autoLevels = False, autoHistogramRange = False)
             self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
             print 'Done'
+
+        # choose run
+        ############
+
 
         self.index_label = PyQt4.QtGui.QLabel()
         self.index_label.setText('goto index:')
@@ -211,6 +219,7 @@ def update_progress(progress):
 if __name__ == '__main__':
     # get the data source
     source = 'exp=cxif5315:run=165:dir=/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/xtc/:idx'
+    #source = 'exp=cxif5315:run=165:idx'
     
     # load darkcal
     darkcal = '/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/processed/calib/darkcal/cxif5315-r0019-CxiDs1-darkcal.h5'
@@ -224,4 +233,4 @@ if __name__ == '__main__':
     
     geom_fnam  = 'cspad-cxif5315-cxi-taw4.geom'
     
-    Application(run, geom_fnam, buffersize = 100, darkcal = darkcal)
+    Application(run, geom_fnam, buffersize = 20, darkcal = darkcal)
