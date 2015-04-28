@@ -56,12 +56,18 @@ class Application:
     The main frame of the application
     """
 
-    def __init__(self, run, geom_fnam, buffersize = 100, darkcal = None):
+
+    def __init__(self, expstr, runno, geom_fnam, buffersize = 100, darkcal = None):
+        self.expstr = expstr
+        self.runno  = runno
+        
+        # get the data source
+        self.run = self.getrun(expstr, runno)
+        
         self.geom_fnam  = geom_fnam
-        self.run        = run
-        # get the time stamps for this dataset
-        self.times = run.times()
+        
         self.buffersize = buffersize
+        
         if darkcal is not None :
             self.darkcal    = gf.apply_geom(geom_fnam, darkcal)
         else :
@@ -69,6 +75,7 @@ class Application:
         
         self.index     = 0
         self.old_index = None
+        self.old_runno = None
         
         ij, self.geom_shape    = gf.get_ij_psana_shaped(geom_fnam)
         self.i_map, self.j_map = ij[0], ij[1]  
@@ -77,18 +84,28 @@ class Application:
         self.temp_data = np.zeros((buffersize,) + (4, 8, 185, 388), dtype=np.int16)
         
         # online plugins
-        self.load_data(run)
+        self.load_data(self.run)
         self.initUI()
+
+    def getrun(self, expstr = 'exp=cxif5315', runno = 165):
+        source   = expstr + ':' + 'run=' + str(runno) + ':idx'
+        self.ds  = psana.DataSource(source)
+        run = self.ds.runs().next()
+        # get the time stamps for this dataset
+        self.times = run.times()
+        return run
 
     def load_data(self, run, start_index = None):
         """
         load the next "self.buffersize" images in the dataset "ds"
         """
+        print run, run.run()
+
         if start_index is not None :
             if start_index != self.index:
                 self.index = start_index
 
-        if self.index == self.old_index :
+        if self.index == self.old_index and self.runno == self.old_runno :
             return 
         
         # get the buffer time stamps self.index : self.index + buffersize
@@ -98,6 +115,9 @@ class Application:
             print 'end of run. Loading: ', self.index, '--> ', len(self.times)
             mytimes = self.times[self.index : -1]
          
+        print mytimes
+        print run.event(mytimes[0])
+        
         # load the raw cspad data in this interval
         print '\nloading image buffer:' 
         for i in range(self.buffersize):
@@ -116,6 +136,7 @@ class Application:
             self.data -= self.darkcal
 
         self.old_index = self.index
+        self.old_runno = self.runno
 
     def initUI(self):
         # Always start by initializing Qt (only once per application)
@@ -175,6 +196,30 @@ class Application:
 
         # choose run
         ############
+        self.runs_label = PyQt4.QtGui.QLabel()
+        self.runs_label.setText('switch to run:')
+        hlayout.addWidget(self.runs_label)
+
+        self.runs_dropdownW = PyQt4.QtGui.QComboBox()
+        run_list = np.arange(1, 209, 1).astype(np.str)
+        for k in run_list:
+            self.runs_dropdownW.addItem(k)
+        
+        def switch_data(text):
+            self.runno = int(text)
+            print 'switching to run:', str(text)
+            self.run = self.getrun(self.expstr, str(text))
+            self.load_data(self.run, start_index = 0)
+            print '\nsetting image data:'
+            self.imageW.setImage(np.transpose(self.data, (0, 2, 1)), autoRange = False, autoLevels = False, autoHistogramRange = False)
+            self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(self.index) + '/' + str(len(self.times)))
+            print 'Done'
+            # reset the label
+            self.next_button.setText('load next ' + str(self.buffersize) + ' images ' + str(0) + '/' + str(len(self.times)))
+        
+        self.runs_dropdownW.activated[str].connect( switch_data )
+        self.runs_dropdownW.setCurrentIndex(self.runno - 1)
+        hlayout.addWidget(self.runs_dropdownW)
 
 
         self.index_label = PyQt4.QtGui.QLabel()
@@ -217,20 +262,14 @@ def update_progress(progress):
 
 
 if __name__ == '__main__':
-    # get the data source
-    source = 'exp=cxif5315:run=165:dir=/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/xtc/:idx'
-    #source = 'exp=cxif5315:run=165:idx'
-    
     # load darkcal
     darkcal = '/nfs/cfel/cxi/scratch/data/2015/LCLS-2015-Liang-Feb-LF53/processed/calib/darkcal/cxif5315-r0019-CxiDs1-darkcal.h5'
     f       = h5py.File(darkcal, 'r')
     darkcal = f['data/data'].value
     f.close()
      
-    # get the data source
-    ds  = psana.DataSource(source)
-    run = ds.runs().next()
-    
     geom_fnam  = 'cspad-cxif5315-cxi-taw4.geom'
     
-    Application(run, geom_fnam, buffersize = 20, darkcal = darkcal)
+    exp = 'exp=cxif5315'
+    run = 165
+    Application(exp, run, geom_fnam, buffersize = 20, darkcal = darkcal)
