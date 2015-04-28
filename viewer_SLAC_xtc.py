@@ -99,8 +99,6 @@ class Application:
         """
         load the next "self.buffersize" images in the dataset "ds"
         """
-        print run, run.run()
-
         if start_index is not None :
             if start_index != self.index:
                 self.index = start_index
@@ -115,9 +113,6 @@ class Application:
             print 'end of run. Loading: ', self.index, '--> ', len(self.times)
             mytimes = self.times[self.index : -1]
          
-        print mytimes
-        print run.event(mytimes[0])
-        
         # load the raw cspad data in this interval
         print '\nloading image buffer:' 
         for i in range(self.buffersize):
@@ -268,7 +263,7 @@ if __name__ == '__main__':
     darkcal = f['data/data'].value
     f.close()
      
-    geom_fnam  = 'cspad-cxif5315-cxi-taw4.geom'
+    geom_fnam  = '/nfs/cfel/cxi/home/amorgan/analysis/Amyloid-LF53-viewer/cspad-cxif5315-cxi-taw4.geom'
     
     exp = 'exp=cxif5315'
     run = 165
